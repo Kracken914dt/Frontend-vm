@@ -12,6 +12,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/crear-vm" element={<CrearVM />} />
+        <Route path="/crear-vm/:id" element={<CrearVM />} />
         <Route path="/logs" element={<Logs />} />
         <Route path="/configuracion" element={<Configuracion />} />
       </Routes>

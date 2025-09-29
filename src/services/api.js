@@ -1,13 +1,16 @@
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = '';
 
 async function request(path, options = {}) {
   const url = `${BASE_URL}${path}`;
+  const hasBody = typeof options.body !== 'undefined' && options.body !== null;
+  const headers = {
+    Accept: 'application/json',
+    ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.headers || {}),
+  };
   const resp = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
     ...options,
+    headers,
   });
 
   const contentType = resp.headers.get('content-type') || '';
@@ -28,7 +31,7 @@ async function request(path, options = {}) {
 export const api = {
   health: () => request('/health', { method: 'GET' }),
   // VMs
-  listVMs: () => request('/vm', { method: 'GET' }),
+  listVMs: () => request('/vm/', { method: 'GET' }),
   getVM: (id) => request(`/vm/${encodeURIComponent(id)}`, { method: 'GET' }),
   createVM: (payload) => request('/vm/create', { method: 'POST', body: JSON.stringify(payload) }),
   updateVM: (id, payload) => request(`/vm/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),

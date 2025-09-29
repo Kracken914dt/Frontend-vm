@@ -1,5 +1,6 @@
-import React from 'react';
-import { FiMenu, FiBell, FiSearch } from 'react-icons/fi';
+import React, { useEffect, useState } from 'react';
+import { FiMenu, FiSearch } from 'react-icons/fi';
+import { api } from '../services/api';
 
 const Header = ({ toggleSidebar }) => {
   return (
@@ -25,19 +26,8 @@ const Header = ({ toggleSidebar }) => {
           </div>
         </div>
         
-        <div className="flex items-center space-x-4">
-          <button className="p-2 text-slate-400 rounded-full hover:bg-slate-800 focus:outline-none">
-            <FiBell className="w-5 h-5" />
-          </button>
-          
-          <div className="relative">
-            <button className="flex items-center space-x-2 focus:outline-none">
-              <div className="w-8 h-8 bg-violet-600/20 rounded-full flex items-center justify-center text-violet-400 font-medium">
-                JD
-              </div>
-              <span className="hidden md:inline-block text-sm font-medium text-slate-200">John Doe</span>
-            </button>
-          </div>
+        <div>
+          <HealthBadge />
         </div>
       </div>
     </header>
@@ -45,3 +35,34 @@ const Header = ({ toggleSidebar }) => {
 };
 
 export default Header;
+
+const HealthBadge = () => {
+  const [state, setState] = useState({ status: 'loading', text: '...' });
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchHealth = async () => {
+      try {
+        const res = await api.health();
+        if (!mounted) return;
+        const text = typeof res === 'string' ? res : (res?.status || 'ok');
+        setState({ status: 'ok', text });
+      } catch (e) {
+        if (!mounted) return;
+        setState({ status: 'down', text: e?.message || 'down' });
+      }
+    };
+    fetchHealth();
+    const id = setInterval(fetchHealth, 10000);
+    return () => { mounted = false; clearInterval(id); };
+  }, []);
+
+  const color = state.status === 'ok' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-600/30' : (state.status === 'loading' ? 'bg-amber-500/20 text-amber-300 border-amber-600/30' : 'bg-rose-500/20 text-rose-300 border-rose-600/30');
+  const label = state.status === 'ok' ? 'Online' : (state.status === 'loading' ? 'Cargando' : 'Offline');
+
+  return (
+    <div className={`px-2.5 py-1 text-xs rounded-full border ${color}`} title={state.text}>
+      API: {label}
+    </div>
+  );
+};
