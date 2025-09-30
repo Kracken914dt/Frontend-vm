@@ -180,9 +180,19 @@ const CrearVM = () => {
       setLoadingVM(true);
       setMsg({ type: '', text: '' });
       try {
-        const vm = await api.getVM(id);
-        const loadedParams = vm.params || vm.specs || vm.configuration || {};
-        const rawProv = vm.proveedor ?? vm.provider ?? vm.cloud ?? 'AWS';
+        const resp = await api.getVM(id);
+        // Support: object, envelope, or array
+        let vm = resp;
+        if (resp && typeof resp === 'object' && !Array.isArray(resp) && resp.vm) vm = resp.vm;
+        if (Array.isArray(resp)) {
+          vm = resp.find((it) => {
+            const cand = it.id ?? it._id ?? it.uuid ?? it.name;
+            return String(cand) === String(id);
+          }) || resp[0];
+        }
+
+        const loadedParamsRaw = vm?.params || vm?.specs || vm?.configuration || {};
+        const rawProv = vm?.proveedor ?? vm?.provider ?? vm?.cloud ?? 'AWS';
         const pLower = String(rawProv).toLowerCase();
         const provUI = pLower === 'aws' ? 'AWS'
           : pLower === 'azure' ? 'Azure'
@@ -190,16 +200,18 @@ const CrearVM = () => {
           : pLower === 'onpremise' ? 'OnPremise'
           : pLower === 'oracle' ? 'Oracle'
           : 'AWS';
+        // Merge defaults to ensure all keys exist for rendering
+        const mergedParams = { ...defaultParamsFor(provUI), ...loadedParamsRaw };
         setForm({
-          nombre: vm.nombre ?? vm.name ?? vm.vm_name ?? '',
-          requested_by: vm.requested_by ?? vm.owner ?? '',
+          nombre: vm?.nombre ?? vm?.name ?? vm?.vm_name ?? '',
+          requested_by: vm?.requested_by ?? vm?.owner ?? '',
           proveedor: provUI,
-          tipo_instancia: loadedParams.instance_type ?? loadedParams.size ?? loadedParams.machine_type ?? 't3.medium',
-          region: loadedParams.region ?? loadedParams.zone ?? loadedParams.location ?? 'us-east-1',
-          vpc: loadedParams.vpc ?? loadedParams.vnet ?? loadedParams.network ?? loadedParams.project ?? 'vpc-123456',
-          ami: loadedParams.ami ?? loadedParams.image ?? loadedParams.base_disk ?? '',
+          tipo_instancia: mergedParams.instance_type ?? mergedParams.size ?? mergedParams.machine_type ?? 't3.medium',
+          region: mergedParams.region ?? mergedParams.zone ?? mergedParams.location ?? 'us-east-1',
+          vpc: mergedParams.vpc ?? mergedParams.vnet ?? mergedParams.network ?? mergedParams.project ?? 'vpc-123456',
+          ami: mergedParams.ami ?? mergedParams.image ?? mergedParams.base_disk ?? '',
         });
-        setParams(loadedParams);
+        setParams(mergedParams);
       } catch (e) {
         setMsg({ type: 'error', text: e?.message || 'No se pudo cargar la VM' });
       } finally {
