@@ -3,13 +3,36 @@ import React from 'react';
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import { SiGooglecloud, SiOracle } from 'react-icons/si';
+import { FaAws } from "react-icons/fa";
+import { VscAzure } from "react-icons/vsc";
+
+const normalizeStatus = (s) => {
+  const v = String(s || '').toLowerCase();
+  if (['running', 'en uso', 'up', 'started', 'active'].includes(v)) return 'running';
+  if (['stopped', 'detenida', 'down', 'stop', 'inactive'].includes(v)) return 'stopped';
+  return v || 'unknown';
+};
 
 const statusBadge = (status) => {
+  const key = normalizeStatus(status);
   const map = {
-    'en uso': 'bg-emerald-500/15 text-emerald-300',
-    'detenida': 'bg-rose-500/15 text-rose-300',
+    'running': 'bg-emerald-500/15 text-emerald-300',
+    'stopped': 'bg-rose-500/15 text-rose-300',
   };
-  return <span className={`px-2.5 py-1 text-xs rounded-full ${map[status] || 'bg-slate-600/40 text-slate-300'}`}>{status}</span>;
+  const label = key === 'running' ? 'running' : key === 'stopped' ? 'stopped' : (status || 'unknown');
+  return <span className={`px-2.5 py-1 text-xs rounded-full ${map[key] || 'bg-slate-600/40 text-slate-300'}`}>{label}</span>;
+};
+
+const ProviderLogo = ({ name }) => {
+  const p = String(name || '').toLowerCase();
+  const common = 'w-5 h-5';
+  if (p.includes('aws')) return <FaAws className={`${common} text-amber-300`} />;
+  if (p.includes('azure')) return <VscAzure className={`${common} text-sky-300`} />;
+  if (p.includes('gcp') || p.includes('google')) return <SiGooglecloud className={`${common} text-indigo-300`} />;
+  if (p.includes('oracle')) return <SiOracle className={`${common} text-red-300`} />;
+  // OnPremise or others
+  return <div className="w-5 h-5 rounded bg-slate-700" />;
 };
 
 const Dashboard = () => {
@@ -17,6 +40,9 @@ const Dashboard = () => {
   const [vms, setVMs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [provFilter, setProvFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,7 +82,17 @@ const Dashboard = () => {
   const getId = (vm) => vm.id ?? vm._id ?? vm.uuid ?? vm.name ?? 'sin-id';
   const getNombre = (vm) => vm.nombre ?? vm.name ?? vm.vm_name ?? '—';
   const getProveedor = (vm) => vm.proveedor ?? vm.provider ?? vm.cloud ?? '—';
-  const getEstado = (vm) => vm.estado ?? vm.status ?? (vm.running ? 'en uso' : 'detenida');
+  const getEstado = (vm) => vm.estado ?? vm.status ?? (vm.running ? 'running' : 'stopped');
+
+  const filtered = vms.filter((vm) => {
+    const name = String(getNombre(vm)).toLowerCase();
+    const prov = String(getProveedor(vm)).toLowerCase();
+    const st = normalizeStatus(getEstado(vm));
+    const qok = !query || name.includes(query.toLowerCase());
+    const pok = !provFilter || prov.includes(provFilter.toLowerCase());
+    const sok = !statusFilter || st === statusFilter;
+    return qok && pok && sok;
+  });
 
   return (
     <div className="space-y-6">
@@ -64,20 +100,20 @@ const Dashboard = () => {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <h2 className="text-xl font-semibold text-slate-100">Listado</h2>
           <div className="flex gap-3">
-            <input className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500" placeholder="Buscar por nombre..."/>
-            <select className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200">
-              <option>Proveedor: Todos</option>
-              <option>AWS</option>
-              <option>Azure</option>
-              <option>GCP</option>
-              <option>OnPremise</option>
+            <input value={query} onChange={(e)=>setQuery(e.target.value)} className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500" placeholder="Buscar por nombre..."/>
+            <select value={provFilter} onChange={(e)=>setProvFilter(e.target.value)} className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200">
+              <option value="">Proveedor: Todos</option>
+              <option value="aws">AWS</option>
+              <option value="azure">Azure</option>
+              <option value="gcp">GCP</option>
+              <option value="onpremise">OnPremise</option>
+              <option value="oracle">Oracle</option>
             </select>
-            <select className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200">
-              <option>Estado: Todos</option>
-              <option>en uso</option>
-              <option>detenida</option>
+            <select value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value)} className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200">
+              <option value="">Estado: Todos</option>
+              <option value="running">running</option>
+              <option value="stopped">stopped</option>
             </select>
-            <button onClick={load} className="px-3 py-2 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600">Refrescar</button>
           </div>
         </div>
 
@@ -99,13 +135,18 @@ const Dashboard = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/80">
-              {vms.map((vm) => {
+              {filtered.map((vm) => {
                 const id = getId(vm);
                 return (
                 <tr key={id} className="hover:bg-slate-900/40">
                   <td className="px-4 py-3 text-slate-300">{id}</td>
                   <td className="px-4 py-3 text-slate-100">{getNombre(vm)}</td>
-                  <td className="px-4 py-3"><span className="px-2.5 py-1 text-xs rounded-full bg-slate-700 text-slate-200">{getProveedor(vm)}</span></td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center gap-2 px-2.5 py-1 text-xs rounded-full bg-slate-700 text-slate-200">
+                      <ProviderLogo name={getProveedor(vm)} />
+                      {getProveedor(vm)}
+                    </span>
+                  </td>
                   <td className="px-4 py-3">{statusBadge(getEstado(vm))}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
@@ -125,13 +166,15 @@ const Dashboard = () => {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {vms.slice(0,2).map(vm => {
+        {filtered.slice(0,2).map(vm => {
           const id = getId(vm);
           return (
           <div key={id} className="bg-slate-800/50 border border-slate-700 rounded-2xl p-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-slate-700" />
+                <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
+                  <ProviderLogo name={getProveedor(vm)} />
+                </div>
                 <div>
                   <h3 className="text-slate-100 font-semibold">{getNombre(vm)}</h3>
                   <p className="text-xs text-slate-400">ID: {id}</p>

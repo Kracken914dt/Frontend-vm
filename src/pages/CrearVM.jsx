@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 const Field = ({ label, children }) => (
   <label className="block">
@@ -25,8 +25,25 @@ const Select = ({ children, ...props }) => (
   </select>
 );
 
+// Input with datalist suggestions (acts like a select with free typing)
+const ComboInput = ({ listId, options = [], ...props }) => (
+  <>
+    <input
+      {...props}
+      list={listId}
+      className={`w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 ${props.className || ''}`}
+    />
+    <datalist id={listId}>
+      {options.map((opt) => (
+        <option key={opt} value={opt} />
+      ))}
+    </datalist>
+  </>
+);
+
 const CrearVM = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const isEdit = !!id;
   const [form, setForm] = useState({
     nombre: '',
@@ -41,6 +58,27 @@ const CrearVM = () => {
   const [msg, setMsg] = useState({ type: '', text: '' });
   const [loadingVM, setLoadingVM] = useState(false);
   const [params, setParams] = useState({});
+
+  // Basic provider-specific validation
+  const validate = () => {
+    if (!form.nombre?.trim()) return { ok: false, message: 'Ingresa un nombre para la VM' };
+    if (!form.requested_by?.trim()) return { ok: false, message: 'Ingresa el solicitante (requested_by)' };
+    const p = (form.proveedor || '').toLowerCase();
+    const required = {
+      aws: ['instance_type', 'region', 'vpc', 'ami'],
+      azure: ['size', 'resource_group', 'image', 'vnet'],
+      gcp: ['machine_type', 'zone', 'base_disk', 'project'],
+      onpremise: ['cpu', 'ram_gb', 'disk_gb', 'nic'],
+      oracle: ['compute_shape', 'compartment_id', 'availability_domain', 'subnet_id', 'image_id'],
+    };
+    const need = required[p] || [];
+    for (const k of need) {
+      if (params[k] === undefined || params[k] === null || `${params[k]}`.trim() === '') {
+        return { ok: false, message: `Falta el parámetro requerido: ${k}` };
+      }
+    }
+    return { ok: true };
+  };
 
   const onChange = (e) => {
     const { name, value } = e.target;
@@ -62,8 +100,38 @@ const CrearVM = () => {
     return {};
   };
 
+  // Suggestion lists per provider
+  const awsOpts = {
+    instance_type: ['t2.nano','t2.micro','t3.micro','t3.small','t3.medium','m5.large','c5.large','r5.large'],
+    region: ['us-east-1','us-east-2','us-west-1','us-west-2','eu-west-1','eu-central-1','ap-south-1','sa-east-1'],
+    vpc: ['vpc-123','vpc-456','vpc-789'],
+    ami: ['ami-abc123','ami-0abcdef','ami-123456']
+  };
+  const azureOpts = {
+    size: ['Standard_B1s','Standard_B2s','Standard_D2s_v5','Standard_F2s_v2','Standard_DS1_v2'],
+    image: ['UbuntuLTS','Ubuntu2204','Windows2019','Windows2022','Debian11'],
+    resource_group: ['rg1','rg-app','rg-prod'],
+    vnet: ['vnet-01','vnet-app','vnet-shared']
+  };
+  const gcpOpts = {
+    machine_type: ['e2-micro','e2-small','e2-medium','n1-standard-1','n2-standard-2'],
+    zone: ['us-central1-a','us-central1-b','us-central1-c','us-east1-b','us-west1-a'],
+    base_disk: ['pd-standard','pd-ssd','hyperdisk-balanced'],
+    project: ['demo-proj','ml-prod-123','sandbox-001']
+  };
+  const onpremiseOpts = {
+    nic: ['eth0','eth1','ens160','ens192']
+  };
+  const oracleOpts = {
+    compute_shape: ['VM.Standard2.1','VM.Standard.E3.Flex','VM.Standard.A1.Flex'],
+    availability_domain: ['AD-1','AD-2','AD-3'],
+    image_id: ['ocid1.image...a','ocid1.image...b']
+  };
+
   const onCreate = async () => {
     setMsg({ type: '', text: '' });
+    const v = validate();
+    if (!v.ok) { setMsg({ type: 'error', text: v.message }); return; }
     setSubmitting(true);
     try {
       const provider = (form.proveedor || '').toLowerCase();
@@ -85,6 +153,8 @@ const CrearVM = () => {
 
   const onUpdate = async () => {
     setMsg({ type: '', text: '' });
+    const v = validate();
+    if (!v.ok) { setMsg({ type: 'error', text: v.message }); return; }
     setSubmitting(true);
     try {
       const provider = (form.proveedor || '').toLowerCase();
@@ -96,6 +166,7 @@ const CrearVM = () => {
       };
       const res = await api.updateVM(id, payload);
       setMsg({ type: 'success', text: `VM actualizada: ${res?.id ?? id}` });
+      navigate('/');
     } catch (e) {
       setMsg({ type: 'error', text: e?.message || 'Error al actualizar la VM' });
     } finally {
@@ -111,10 +182,18 @@ const CrearVM = () => {
       try {
         const vm = await api.getVM(id);
         const loadedParams = vm.params || vm.specs || vm.configuration || {};
+        const rawProv = vm.proveedor ?? vm.provider ?? vm.cloud ?? 'AWS';
+        const pLower = String(rawProv).toLowerCase();
+        const provUI = pLower === 'aws' ? 'AWS'
+          : pLower === 'azure' ? 'Azure'
+          : pLower === 'gcp' ? 'GCP'
+          : pLower === 'onpremise' ? 'OnPremise'
+          : pLower === 'oracle' ? 'Oracle'
+          : 'AWS';
         setForm({
           nombre: vm.nombre ?? vm.name ?? vm.vm_name ?? '',
           requested_by: vm.requested_by ?? vm.owner ?? '',
-          proveedor: (vm.proveedor ?? vm.provider ?? vm.cloud ?? 'AWS').toString().toUpperCase(),
+          proveedor: provUI,
           tipo_instancia: loadedParams.instance_type ?? loadedParams.size ?? loadedParams.machine_type ?? 't3.medium',
           region: loadedParams.region ?? loadedParams.zone ?? loadedParams.location ?? 'us-east-1',
           vpc: loadedParams.vpc ?? loadedParams.vnet ?? loadedParams.network ?? loadedParams.project ?? 'vpc-123456',
@@ -141,6 +220,12 @@ const CrearVM = () => {
 
   return (
     <div className="grid lg:grid-cols-3 gap-6">
+      {/* Toast */}
+      {msg.type === 'success' && (
+        <div className="fixed top-4 right-4 z-50 px-4 py-2 rounded-lg border bg-emerald-500/20 text-emerald-300 border-emerald-600/30 shadow">
+          {msg.text}
+        </div>
+      )}
       <div className="lg:col-span-2 space-y-6">
         <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6">
           <h2 className="text-lg font-semibold text-slate-100 mb-4">{isEdit ? `Editar VM (${id})` : 'Crear VM'}</h2>
@@ -163,62 +248,54 @@ const CrearVM = () => {
                 <option value="Oracle">Oracle</option>
               </Select>
             </Field>
-            <Field label="Acción">
-              <Select>
-                <option>Crear</option>
-                <option>Actualizar</option>
-                <option>Detener</option>
-                <option>Eliminar</option>
-              </Select>
-            </Field>
           </div>
 
-          <div className="mt-6 grid md:grid-cols-2 gap-4">
+          <div className="mt-4 grid md:grid-cols-2 gap-3">
             {(form.proveedor === 'AWS') && (
               <>
                 <Field label="Instance Type">
-                  <Input value={params.instance_type || ''} onChange={(e) => setParam('instance_type', e.target.value)} placeholder="t2.micro" />
+                  <ComboInput listId="aws-instance-type" options={awsOpts.instance_type} value={params.instance_type || ''} onChange={(e) => setParam('instance_type', e.target.value)} placeholder="t2.micro" />
                 </Field>
                 <Field label="Region">
-                  <Input value={params.region || ''} onChange={(e) => setParam('region', e.target.value)} placeholder="us-east-1" />
+                  <ComboInput listId="aws-region" options={awsOpts.region} value={params.region || ''} onChange={(e) => setParam('region', e.target.value)} placeholder="us-east-1" />
                 </Field>
                 <Field label="VPC">
-                  <Input value={params.vpc || ''} onChange={(e) => setParam('vpc', e.target.value)} placeholder="vpc-123" />
+                  <ComboInput listId="aws-vpc" options={awsOpts.vpc} value={params.vpc || ''} onChange={(e) => setParam('vpc', e.target.value)} placeholder="vpc-123" />
                 </Field>
                 <Field label="AMI">
-                  <Input value={params.ami || ''} onChange={(e) => setParam('ami', e.target.value)} placeholder="ami-abc" />
+                  <ComboInput listId="aws-ami" options={awsOpts.ami} value={params.ami || ''} onChange={(e) => setParam('ami', e.target.value)} placeholder="ami-abc" />
                 </Field>
               </>
             )}
             {(form.proveedor === 'Azure') && (
               <>
                 <Field label="Size">
-                  <Input value={params.size || ''} onChange={(e) => setParam('size', e.target.value)} placeholder="Standard_B1s" />
+                  <ComboInput listId="az-size" options={azureOpts.size} value={params.size || ''} onChange={(e) => setParam('size', e.target.value)} placeholder="Standard_B1s" />
                 </Field>
                 <Field label="Resource Group">
-                  <Input value={params.resource_group || ''} onChange={(e) => setParam('resource_group', e.target.value)} placeholder="rg1" />
+                  <ComboInput listId="az-rg" options={azureOpts.resource_group} value={params.resource_group || ''} onChange={(e) => setParam('resource_group', e.target.value)} placeholder="rg1" />
                 </Field>
                 <Field label="Image">
-                  <Input value={params.image || ''} onChange={(e) => setParam('image', e.target.value)} placeholder="UbuntuLTS" />
+                  <ComboInput listId="az-image" options={azureOpts.image} value={params.image || ''} onChange={(e) => setParam('image', e.target.value)} placeholder="UbuntuLTS" />
                 </Field>
                 <Field label="VNet">
-                  <Input value={params.vnet || ''} onChange={(e) => setParam('vnet', e.target.value)} placeholder="vnet-01" />
+                  <ComboInput listId="az-vnet" options={azureOpts.vnet} value={params.vnet || ''} onChange={(e) => setParam('vnet', e.target.value)} placeholder="vnet-01" />
                 </Field>
               </>
             )}
             {(form.proveedor === 'GCP') && (
               <>
                 <Field label="Machine Type">
-                  <Input value={params.machine_type || ''} onChange={(e) => setParam('machine_type', e.target.value)} placeholder="e2-micro" />
+                  <ComboInput listId="gcp-machine" options={gcpOpts.machine_type} value={params.machine_type || ''} onChange={(e) => setParam('machine_type', e.target.value)} placeholder="e2-micro" />
                 </Field>
                 <Field label="Zone">
-                  <Input value={params.zone || ''} onChange={(e) => setParam('zone', e.target.value)} placeholder="us-central1-a" />
+                  <ComboInput listId="gcp-zone" options={gcpOpts.zone} value={params.zone || ''} onChange={(e) => setParam('zone', e.target.value)} placeholder="us-central1-a" />
                 </Field>
                 <Field label="Base Disk">
-                  <Input value={params.base_disk || ''} onChange={(e) => setParam('base_disk', e.target.value)} placeholder="pd-standard" />
+                  <ComboInput listId="gcp-basedisk" options={gcpOpts.base_disk} value={params.base_disk || ''} onChange={(e) => setParam('base_disk', e.target.value)} placeholder="pd-standard" />
                 </Field>
                 <Field label="Project">
-                  <Input value={params.project || ''} onChange={(e) => setParam('project', e.target.value)} placeholder="demo-proj" />
+                  <ComboInput listId="gcp-project" options={gcpOpts.project} value={params.project || ''} onChange={(e) => setParam('project', e.target.value)} placeholder="demo-proj" />
                 </Field>
               </>
             )}
@@ -234,26 +311,26 @@ const CrearVM = () => {
                   <Input type="number" value={params.disk_gb ?? ''} onChange={(e) => setParam('disk_gb', Number(e.target.value))} placeholder="50" />
                 </Field>
                 <Field label="NIC">
-                  <Input value={params.nic || ''} onChange={(e) => setParam('nic', e.target.value)} placeholder="eth0" />
+                  <ComboInput listId="onp-nic" options={onpremiseOpts.nic} value={params.nic || ''} onChange={(e) => setParam('nic', e.target.value)} placeholder="eth0" />
                 </Field>
               </>
             )}
             {(form.proveedor === 'Oracle') && (
               <>
                 <Field label="Compute Shape">
-                  <Input value={params.compute_shape || ''} onChange={(e) => setParam('compute_shape', e.target.value)} placeholder="VM.Standard2.1" />
+                  <ComboInput listId="orc-shape" options={oracleOpts.compute_shape} value={params.compute_shape || ''} onChange={(e) => setParam('compute_shape', e.target.value)} placeholder="VM.Standard2.1" />
                 </Field>
                 <Field label="Compartment ID">
-                  <Input value={params.compartment_id || ''} onChange={(e) => setParam('compartment_id', e.target.value)} placeholder="ocid1.compartment..." />
+                  <ComboInput listId="orc-comp" options={[]} value={params.compartment_id || ''} onChange={(e) => setParam('compartment_id', e.target.value)} placeholder="ocid1.compartment..." />
                 </Field>
                 <Field label="Availability Domain">
-                  <Input value={params.availability_domain || ''} onChange={(e) => setParam('availability_domain', e.target.value)} placeholder="AD-1" />
+                  <ComboInput listId="orc-ad" options={oracleOpts.availability_domain} value={params.availability_domain || ''} onChange={(e) => setParam('availability_domain', e.target.value)} placeholder="AD-1" />
                 </Field>
                 <Field label="Subnet ID">
-                  <Input value={params.subnet_id || ''} onChange={(e) => setParam('subnet_id', e.target.value)} placeholder="ocid1.subnet..." />
+                  <ComboInput listId="orc-subnet" options={[]} value={params.subnet_id || ''} onChange={(e) => setParam('subnet_id', e.target.value)} placeholder="ocid1.subnet..." />
                 </Field>
                 <Field label="Image ID">
-                  <Input value={params.image_id || ''} onChange={(e) => setParam('image_id', e.target.value)} placeholder="ocid1.image..." />
+                  <ComboInput listId="orc-image" options={oracleOpts.image_id} value={params.image_id || ''} onChange={(e) => setParam('image_id', e.target.value)} placeholder="ocid1.image..." />
                 </Field>
               </>
             )}
@@ -268,6 +345,11 @@ const CrearVM = () => {
             {isEdit && (
               <button onClick={onUpdate} disabled={submitting} className="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-60 disabled:cursor-not-allowed">
                 {submitting ? 'Guardando...' : 'Guardar Cambios'}
+              </button>
+            )}
+            {isEdit && (
+              <button onClick={() => navigate('/')} disabled={submitting} className="px-4 py-2 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600 disabled:opacity-60 disabled:cursor-not-allowed">
+                Cancelar
               </button>
             )}
           </div>
