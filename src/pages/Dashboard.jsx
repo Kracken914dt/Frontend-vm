@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { SiGooglecloud, SiOracle } from 'react-icons/si';
 import { FaAws } from "react-icons/fa";
 import { VscAzure } from "react-icons/vsc";
+import DeleteModal from '../components/DeleteModal';
 
 const normalizeStatus = (s) => {
   const v = String(s || '').toLowerCase();
@@ -43,6 +44,10 @@ const Dashboard = () => {
   const [query, setQuery] = useState('');
   const [provFilter, setProvFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmId, setConfirmId] = useState(null);
+  const [confirmName, setConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,14 +74,16 @@ const Dashboard = () => {
     }
   };
 
-  const doDelete = async (id) => {
-    if (!window.confirm('¿Eliminar la VM?')) return;
+  const openDelete = (id, name = '') => { setConfirmId(id); setConfirmName(name); setShowConfirm(true); };
+  const confirmDelete = async () => {
+    if (!confirmId) return; setDeleting(true);
     try {
-      await api.deleteVM(id);
-      setVMs(prev => prev.filter(vm => (vm.id ?? vm._id ?? vm.uuid) !== id));
+      await api.deleteVM(confirmId);
+      setVMs(prev => prev.filter(vm => (vm.id ?? vm._id ?? vm.uuid) !== confirmId));
+      setShowConfirm(false); setConfirmId(null);
     } catch (e) {
       alert(`Error al eliminar: ${e?.message || 'desconocido'}`);
-    }
+    } finally { setDeleting(false); }
   };
 
   const getId = (vm) => vm.id ?? vm._id ?? vm.uuid ?? vm.name ?? 'sin-id';
@@ -114,7 +121,15 @@ const Dashboard = () => {
               <option value="running">running</option>
               <option value="stopped">stopped</option>
             </select>
-          </div>
+            <DeleteModal
+              open={showConfirm}
+              loading={deleting}
+              title="Confirmar eliminación"
+              message={`¿Eliminar la VM "${confirmName}"? Esta acción no se puede deshacer.`}
+              onCancel={() => { setShowConfirm(false); setConfirmId(null); setConfirmName(''); }}
+              onConfirm={confirmDelete}
+            />
+    </div>
         </div>
 
         <div className="mt-6 overflow-hidden rounded-xl border border-slate-700">
@@ -154,7 +169,7 @@ const Dashboard = () => {
                       <button onClick={() => doAction(id, 'stop')} className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600">Stop</button>
                       <button onClick={() => doAction(id, 'restart')} className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600">Restart</button>
                       <button onClick={() => navigate(`/crear-vm/${id}`)} className="px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-500">Editar</button>
-                      <button onClick={() => doDelete(id)} className="px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-500">Eliminar</button>
+                      <button onClick={() => openDelete(id, getNombre(vm))} className="px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-500">Eliminar</button>
                     </div>
                   </td>
                 </tr>
@@ -169,28 +184,27 @@ const Dashboard = () => {
         {filtered.slice(0,2).map(vm => {
           const id = getId(vm);
           return (
-          <div key={id} className="bg-slate-800/50 border border-slate-700 rounded-2xl p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
-                  <ProviderLogo name={getProveedor(vm)} />
+            <div key={id} className="bg-slate-800/50 border border-slate-700 rounded-2xl p-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
+                    <ProviderLogo name={getProveedor(vm)} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">ID: {id}</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-slate-100 font-semibold">{getNombre(vm)}</h3>
-                  <p className="text-xs text-slate-400">ID: {id}</p>
-                </div>
+                {statusBadge(getEstado(vm))}
               </div>
-              {statusBadge(getEstado(vm))}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button onClick={() => doAction(id, 'start')} className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600">Start</button>
+                <button onClick={() => doAction(id, 'stop')} className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600">Stop</button>
+                <button onClick={() => doAction(id, 'restart')} className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600">Restart</button>
+                <button onClick={() => navigate(`/crear-vm/${id}`)} className="px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-500">Editar</button>
+                <button onClick={() => openDelete(id, getNombre(vm))} className="px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-500">Eliminar</button>
+              </div>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button onClick={() => doAction(id, 'start')} className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600">Start</button>
-              <button onClick={() => doAction(id, 'stop')} className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600">Stop</button>
-              <button onClick={() => doAction(id, 'restart')} className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-100 hover:bg-slate-600">Restart</button>
-              <button onClick={() => navigate(`/crear-vm/${id}`)} className="px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-500">Editar</button>
-              <button onClick={() => doDelete(id)} className="px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-500">Eliminar</button>
-            </div>
-          </div>
-        );
+          );
         })}
       </div>
     </div>
@@ -198,4 +212,3 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
-
